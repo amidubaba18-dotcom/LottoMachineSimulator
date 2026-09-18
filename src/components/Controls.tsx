@@ -4,12 +4,10 @@
  */
 
 import React from 'react';
-import { Zap, RotateCcw, Volume2, VolumeX, Disc3, Wind, Hash } from 'lucide-react';
+import { Volume2, VolumeX, Disc3, Wind, Hash } from 'lucide-react';
 import { CustomPool } from '../types';
 
 interface ControlsProps {
-  onDrawAll: () => void;
-  onReset: () => void;
   isDrawing: boolean;
   drawnCount: number;
   numbersToPick: number;
@@ -25,11 +23,10 @@ interface ControlsProps {
 }
 
 export const Controls: React.FC<ControlsProps> = ({
-  onDrawAll, onReset, isDrawing, drawnCount, numbersToPick, maxNumbersToPick,
+  isDrawing, drawnCount, numbersToPick, maxNumbersToPick,
   onNumbersToPickChange, activePool, speedMultiplier, onSpeedChange, soundEnabled,
   onToggleSound, machineType, onMachineTypeChange,
 }) => {
-  const isComplete = drawnCount >= numbersToPick;
   const canChangeCount = !isDrawing && drawnCount === 0;
 
   const clamp = (val: number) => Math.min(Math.max(val, 1), maxNumbersToPick);
@@ -78,24 +75,6 @@ export const Controls: React.FC<ControlsProps> = ({
             className="flex-1 accent-neutral-900 disabled:opacity-50 disabled:cursor-not-allowed"
           />
         </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={onDrawAll}
-          disabled={isDrawing || isComplete}
-          className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-lg text-xs font-semibold bg-neutral-900 text-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
-        >
-          <Zap className="w-4 h-4" />
-          Draw All
-        </button>
-        <button
-          onClick={onReset}
-          className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-lg text-xs font-semibold border border-neutral-300 text-neutral-700 cursor-pointer"
-        >
-          <RotateCcw className="w-4 h-4" />
-          Reset
-        </button>
       </div>
 
       <div className="flex items-center justify-between p-2.5 rounded-lg border border-neutral-200 text-xs">

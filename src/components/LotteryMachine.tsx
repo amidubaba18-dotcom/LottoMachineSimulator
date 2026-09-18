@@ -12,6 +12,7 @@ import React, {
   useCallback,
 } from 'react';
 import Matter, { Body, Engine, Bodies, World, Events } from 'matter-js';
+import { Zap, RotateCcw } from 'lucide-react';
 import { LotteryMachineHandle, LotteryMachineProps, Phase } from '../types';
 import { soundEffects } from '../utils/audio';
 
@@ -101,6 +102,10 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       soundEnabled = true,
       machineType = 'mechanical',
       debugMode = false,
+      onDrawAll,
+      onReset,
+      isDrawing,
+      isComplete,
     } = props;
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1269,12 +1274,30 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
     }
 
     return (
-      <div className="relative flex flex-col items-center justify-center select-none w-full max-w-[360px] mx-auto">
+      <div className="relative flex flex-col items-center justify-center select-none w-full max-w-[360px] mx-auto gap-3">
         <canvas
           ref={canvasRef}
           style={{ width: W, height: H }}
           className="rounded-2xl drop-shadow-xl max-w-full h-auto touch-none"
         />
+
+        <div className="grid grid-cols-2 gap-2 w-full">
+          <button
+            onClick={onDrawAll}
+            disabled={isDrawing || isComplete}
+            className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-lg text-xs font-semibold bg-neutral-900 text-white disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+          >
+            <Zap className="w-4 h-4" />
+            Draw All
+          </button>
+          <button
+            onClick={onReset}
+            className="flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-lg text-xs font-semibold border border-neutral-300 text-neutral-700 cursor-pointer"
+          >
+            <RotateCcw className="w-4 h-4" />
+            Reset
+          </button>
+        </div>
       </div>
     );
   }

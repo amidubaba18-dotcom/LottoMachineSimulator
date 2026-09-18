@@ -3,164 +3,1076 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
-import { X, Plus, Trash2, Check, Layers, AlertCircle } from 'lucide-react';
-import { CustomPool } from '../types';
-import { parseCustomNumbers } from '../data/pools';
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
+
+import {
+  AlertCircle,
+  Check,
+  ChevronLeft,
+  Edit3,
+  Layers,
+  Link2,
+  Plus,
+  Trash2,
+  X,
+} from 'lucide-react';
+
+import {
+  CustomPool,
+  SharedPool,
+} from '../types';
+
+import {
+  describePool,
+  getPoolNumbers,
+} from '../data/pools';
+
+import { NumberGridPicker } from './NumberGridPicker';
 
 interface PoolsModalProps {
   isOpen: boolean;
   onClose: () => void;
+
   savedPools: CustomPool[];
+  sharedPools: SharedPool[];
+
   activePoolId: string;
-  onSelectPool: (pool: CustomPool) => void;
-  onSaveNewPool: (newPool: CustomPool) => void;
-  onDeletePool: (poolId: string) => void;
+
+  onSelectPool: (
+    pool: CustomPool
+  ) => void;
+
+  onSaveNewPool: (
+    pool: CustomPool
+  ) => void;
+
+  onUpdatePool: (
+    pool: CustomPool
+  ) => void;
+
+  onDeletePool: (
+    poolId: string
+  ) => void;
+
+  onSaveSharedPool: (
+    pool: SharedPool
+  ) => void;
+
+  onUpdateSharedPool: (
+    pool: SharedPool
+  ) => void;
+
+  onDeleteSharedPool: (
+    poolId: string
+  ) => void;
 }
 
-export const PoolsModal: React.FC<PoolsModalProps> = ({ isOpen, onClose, savedPools, activePoolId, onSelectPool, onSaveNewPool, onDeletePool }) => {
-  const [tab, setTab] = useState<'select' | 'create'>('select');
-  const [poolType, setPoolType] = useState<'custom_list' | 'range'>('range');
-  const [name, setName] = useState('');
-  const [rawNumbers, setRawNumbers] = useState('7, 14, 21, 28, 35, 42, 49');
-  const [rangeMin, setRangeMin] = useState(1);
-  const [rangeMax, setRangeMax] = useState(40);
-  const [numbersToPick, setNumbersToPick] = useState(5);
-  const [validationError, setValidationError] = useState<string | null>(null);
+type MainTab =
+  | 'pools'
+  | 'shared';
 
-  const parsedNumbers = useMemo(() => {
-    if (poolType === 'range') {
-      const lo = Math.min(rangeMin, rangeMax), hi = Math.max(rangeMin, rangeMax);
-      const arr: number[] = [];
-      for (let i = lo; i <= hi; i++) arr.push(i);
-      return arr;
-    }
-    return parseCustomNumbers(rawNumbers);
-  }, [poolType, rawNumbers, rangeMin, rangeMax]);
+type PoolView =
+  | 'list'
+  | 'editor';
 
-  useEffect(() => {
-    if (parsedNumbers.length > 0 && numbersToPick > parsedNumbers.length) {
-      setNumbersToPick(Math.max(1, Math.min(6, parsedNumbers.length)));
-    }
-  }, [parsedNumbers.length, numbersToPick]);
+type SharedView =
+  | 'list'
+  | 'editor';
 
-  if (!isOpen) return null;
+export const PoolsModal: React.FC<
+  PoolsModalProps
+> = ({
+  isOpen,
+  onClose,
+  savedPools,
+  sharedPools,
+  activePoolId,
+  onSelectPool,
+  onSaveNewPool,
+  onUpdatePool,
+  onDeletePool,
+  onSaveSharedPool,
+  onUpdateSharedPool,
+  onDeleteSharedPool,
+}) => {
+    const [mainTab, setMainTab] =
+      useState<MainTab>('pools');
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    setValidationError(null);
-    if (parsedNumbers.length < 2) { setValidationError('Pool needs at least 2 numbers.'); return }
-    if (numbersToPick < 1 || numbersToPick > parsedNumbers.length) { setValidationError(`Pick count must be between 1 and ${parsedNumbers.length}.`); return }
+    const [poolView, setPoolView] =
+      useState<PoolView>('list');
 
-    const minVal = Math.min(...parsedNumbers), maxVal = Math.max(...parsedNumbers);
-    const newPool: CustomPool = {
-      id: `custom-${Date.now()}`,
-      name: name.trim() || `Custom (${parsedNumbers.length})`,
-      type: poolType,
-      min: minVal,
-      max: maxVal,
-      customNumbers: poolType === 'custom_list' ? parsedNumbers : undefined,
+    const [sharedView, setSharedView] =
+      useState<SharedView>('list');
+
+    const [editingPoolId, setEditingPoolId] =
+      useState<string | null>(null);
+
+    const [
+      editingSharedPoolId,
+      setEditingSharedPoolId,
+    ] = useState<string | null>(null);
+
+    const [name, setName] =
+      useState('');
+
+    const [numbers, setNumbers] =
+      useState<number[]>([]);
+
+    const [numbersToPick, setNumbersToPick] =
+      useState(5);
+
+    const [sharedPoolId, setSharedPoolId] =
+      useState<string>('');
+
+    const [gridOpen, setGridOpen] =
+      useState(false);
+
+    const [sharedGridOpen, setSharedGridOpen] =
+      useState(false);
+
+    const [error, setError] =
+      useState<string | null>(null);
+
+    useEffect(() => {
+      if (!isOpen) return;
+
+      setMainTab('pools');
+      setPoolView('list');
+      setSharedView('list');
+      setEditingPoolId(null);
+      setEditingSharedPoolId(null);
+      setName('');
+      setNumbers([]);
+      setNumbersToPick(5);
+      setSharedPoolId('');
+      setError(null);
+    }, [isOpen]);
+
+    const editingPool = useMemo(
+      () =>
+        savedPools.find(
+          (pool) =>
+            pool.id === editingPoolId
+        ),
+      [savedPools, editingPoolId]
+    );
+
+    const editingSharedPool =
+      useMemo(
+        () =>
+          sharedPools.find(
+            (pool) =>
+              pool.id ===
+              editingSharedPoolId
+          ),
+        [
+          sharedPools,
+          editingSharedPoolId,
+        ]
+      );
+
+    const effectiveNumbers = useMemo(() => {
+      const tempPool: CustomPool = {
+        id: 'preview',
+        name: name || 'Preview',
+        numbers,
+        numbersToPick,
+        sharedPoolId:
+          sharedPoolId || undefined,
+      };
+
+      return getPoolNumbers(
+        tempPool,
+        sharedPools
+      );
+    }, [
+      name,
+      numbers,
       numbersToPick,
-      description: poolType === 'custom_list' ? `${parsedNumbers.length} numbers • Pick ${numbersToPick}` : `${minVal} to ${maxVal} • Pick ${numbersToPick}`,
-      isPreset: false,
-      createdAt: Date.now(),
+      sharedPoolId,
+      sharedPools,
+    ]);
+
+    const startCreatingPool = () => {
+      setPoolView('editor');
+      setEditingPoolId(null);
+      setName('');
+      setNumbers([]);
+      setNumbersToPick(5);
+      setSharedPoolId('');
+      setError(null);
     };
-    onSaveNewPool(newPool);
-    onSelectPool(newPool);
-    onClose();
-  };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50">
-      <div className="bg-white rounded-2xl border border-neutral-300 w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200">
-          <div className="flex items-center gap-2 font-semibold text-neutral-900">
-            <Layers className="w-4 h-4" /> Pools
-          </div>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-900 cursor-pointer"><X className="w-5 h-5" /></button>
-        </div>
+    const startEditingPool = (
+      pool: CustomPool
+    ) => {
+      setPoolView('editor');
+      setEditingPoolId(pool.id);
+      setName(pool.name);
+      setNumbers([...pool.numbers]);
+      setNumbersToPick(pool.numbersToPick);
+      setSharedPoolId(
+        pool.sharedPoolId || ''
+      );
+      setError(null);
+    };
 
-        <div className="flex border-b border-neutral-200 px-5 gap-4">
-          <button onClick={() => setTab('select')} className={`py-2.5 text-xs font-semibold border-b-2 cursor-pointer ${tab === 'select' ? 'border-neutral-900 text-neutral-900' : 'border-transparent text-neutral-400'}`}>Select</button>
-          <button onClick={() => setTab('create')} className={`py-2.5 text-xs font-semibold border-b-2 cursor-pointer ${tab === 'create' ? 'border-neutral-900 text-neutral-900' : 'border-transparent text-neutral-400'}`}>Create</button>
-        </div>
+    const savePool = () => {
+      setError(null);
 
-        <div className="p-5 overflow-y-auto flex-1">
-          {tab === 'select' ? (
-            <div className="flex flex-col gap-2">
-              {savedPools.map((pool) => {
-                const isActive = pool.id === activePoolId;
-                return (
-                  <div key={pool.id} className={`flex items-center justify-between p-3 rounded-lg border ${isActive ? 'border-neutral-900' : 'border-neutral-200'}`}>
-                    <div>
-                      <div className="flex items-center gap-2 text-xs font-semibold text-neutral-900">
-                        {pool.name}
-                        {isActive && <span className="flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.2 rounded bg-neutral-900 text-white"><Check className="w-3 h-3" />Active</span>}
-                      </div>
-                      <p className="text-[11px] text-neutral-400">{pool.description}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {!isActive && (
-                        <button onClick={() => { onSelectPool(pool); onClose() }} className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-neutral-900 text-white cursor-pointer">Load</button>
-                      )}
-                      {!pool.isPreset && (
-                        <button onClick={() => onDeletePool(pool.id)} className="p-1.5 text-neutral-400 hover:text-neutral-900 cursor-pointer"><Trash2 className="w-4 h-4" /></button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
-            <form onSubmit={handleSave} className="flex flex-col gap-4">
+      if (!name.trim()) {
+        setError(
+          'Please enter a pool name.'
+        );
+        return;
+      }
+
+      if (numbers.length === 0 && !sharedPoolId) {
+        setError(
+          'Add at least one number or link a shared pool.'
+        );
+        return;
+      }
+
+      if (
+        effectiveNumbers.length === 0
+      ) {
+        setError(
+          'The pool must contain at least one number.'
+        );
+        return;
+      }
+
+      if (
+        numbersToPick < 1 ||
+        numbersToPick >
+        effectiveNumbers.length
+      ) {
+        setError(
+          `Balls to draw must be between 1 and ${effectiveNumbers.length}.`
+        );
+        return;
+      }
+
+      const pool: CustomPool = {
+        id:
+          editingPoolId ||
+          `custom-${Date.now()}`,
+        name: name.trim(),
+        numbers: [...numbers],
+        sharedPoolId:
+          sharedPoolId || undefined,
+        numbersToPick,
+        description:
+          describePool(
+            {
+              id:
+                editingPoolId ||
+                'preview',
+              name: name.trim(),
+              numbers,
+              sharedPoolId:
+                sharedPoolId ||
+                undefined,
+              numbersToPick,
+            },
+            sharedPools
+          ),
+        isPreset:
+          editingPool?.isPreset ||
+          false,
+        createdAt:
+          editingPool?.createdAt ||
+          Date.now(),
+      };
+
+      if (editingPoolId) {
+        onUpdatePool(pool);
+      } else {
+        onSaveNewPool(pool);
+      }
+
+      setPoolView('list');
+      setEditingPoolId(null);
+      setName('');
+      setNumbers([]);
+      setNumbersToPick(5);
+      setSharedPoolId('');
+    };
+
+    const startCreatingSharedPool =
+      () => {
+        setSharedView('editor');
+        setEditingSharedPoolId(null);
+        setName('');
+        setNumbers([]);
+        setError(null);
+      };
+
+    const startEditingSharedPool = (
+      pool: SharedPool
+    ) => {
+      setSharedView('editor');
+      setEditingSharedPoolId(pool.id);
+      setName(pool.name);
+      setNumbers([...pool.numbers]);
+      setError(null);
+    };
+
+    const saveSharedPool = () => {
+      setError(null);
+
+      if (!name.trim()) {
+        setError(
+          'Please enter a shared pool name.'
+        );
+        return;
+      }
+
+      if (numbers.length === 0) {
+        setError(
+          'Add at least one number to the shared pool.'
+        );
+        return;
+      }
+
+      const pool: SharedPool = {
+        id:
+          editingSharedPoolId ||
+          `shared-${Date.now()}`,
+        name: name.trim(),
+        numbers: [...numbers],
+        description:
+          `${numbers.length} numbers`,
+        createdAt:
+          editingSharedPool?.createdAt ||
+          Date.now(),
+      };
+
+      if (editingSharedPoolId) {
+        onUpdateSharedPool(pool);
+      } else {
+        onSaveSharedPool(pool);
+      }
+
+      setSharedView('list');
+      setEditingSharedPoolId(null);
+      setName('');
+      setNumbers([]);
+    };
+
+    if (!isOpen) return null;
+
+    return (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/50"
+        onClick={onClose}
+      >
+        <div
+          className="bg-white rounded-2xl border border-neutral-300 w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden shadow-2xl"
+          onClick={(event) =>
+            event.stopPropagation()
+          }
+        >
+          {/* Header */}
+
+          <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-200">
+            <div className="flex items-center gap-2">
+              <Layers className="w-5 h-5 text-neutral-800" />
+
               <div>
-                <label className="block text-xs font-semibold text-neutral-700 mb-1">Pool Name</label>
-                <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Office Raffle" className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm" maxLength={40} />
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <button type="button" onClick={() => setPoolType('range')} className={`p-2.5 rounded-lg border text-left text-xs font-semibold cursor-pointer ${poolType === 'range' ? 'border-neutral-900' : 'border-neutral-200 text-neutral-500'}`}>Range</button>
-                <button type="button" onClick={() => setPoolType('custom_list')} className={`p-2.5 rounded-lg border text-left text-xs font-semibold cursor-pointer ${poolType === 'custom_list' ? 'border-neutral-900' : 'border-neutral-200 text-neutral-500'}`}>Custom list</button>
-              </div>
-
-              {poolType === 'range' ? (
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-semibold text-neutral-700 mb-1">Min</label>
-                    <input type="number" value={rangeMin} onChange={(e) => setRangeMin(Math.max(1, Number(e.target.value)))} className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-neutral-700 mb-1">Max</label>
-                    <input type="number" value={rangeMax} onChange={(e) => setRangeMax(Math.max(rangeMin + 1, Number(e.target.value)))} className="w-full px-3 py-2 rounded-lg border border-neutral-300 text-sm" />
-                  </div>
+                <div className="font-black text-sm text-neutral-900">
+                  Pools
                 </div>
-              ) : (
-                <textarea rows={3} value={rawNumbers} onChange={(e) => setRawNumbers(e.target.value)} placeholder="3, 7, 12, 19, 23" className="w-full p-3 rounded-lg border border-neutral-300 text-xs font-mono resize-none" />
-              )}
 
-              <div className="flex items-center justify-between p-3 rounded-lg border border-neutral-200">
-                <span className="text-xs font-semibold text-neutral-700">Balls to draw</span>
-                <input type="number" min={1} max={Math.max(1, parsedNumbers.length)} value={numbersToPick} onChange={(e) => setNumbersToPick(Math.max(1, Math.min(parsedNumbers.length || 1, Number(e.target.value))))} className="w-16 text-center text-sm font-bold py-1 px-2 rounded-lg border border-neutral-300" />
-              </div>
-
-              <p className="text-[11px] text-neutral-400">{parsedNumbers.length} numbers in pool</p>
-
-              {validationError && (
-                <div className="flex items-center gap-2 p-2.5 rounded-lg bg-neutral-100 border border-neutral-300 text-neutral-800 text-xs font-medium">
-                  <AlertCircle className="w-4 h-4 shrink-0" /> {validationError}
+                <div className="text-[10px] text-neutral-400">
+                  Manage your number pools
                 </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-2 border-t border-neutral-100">
-                <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-xs font-semibold text-neutral-600 cursor-pointer">Cancel</button>
-                <button type="submit" disabled={parsedNumbers.length < 2} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-neutral-900 text-white disabled:opacity-40 cursor-pointer">
-                  <Plus className="w-4 h-4" /> Save & Load
-                </button>
               </div>
-            </form>
-          )}
+            </div>
+
+            <button
+              onClick={onClose}
+              className="p-1.5 text-neutral-400 hover:text-neutral-900"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Main tabs */}
+
+          <div className="flex border-b border-neutral-200 px-5">
+            <button
+              onClick={() => {
+                setMainTab('pools');
+                setPoolView('list');
+              }}
+              className={`
+              px-1 mr-5 py-3 text-xs font-bold border-b-2
+              ${mainTab === 'pools'
+                  ? 'border-neutral-900 text-neutral-900'
+                  : 'border-transparent text-neutral-400'
+                }
+            `}
+            >
+              Custom Pools
+            </button>
+
+            <button
+              onClick={() => {
+                setMainTab('shared');
+                setSharedView('list');
+              }}
+              className={`
+              px-1 py-3 text-xs font-bold border-b-2
+              ${mainTab === 'shared'
+                  ? 'border-neutral-900 text-neutral-900'
+                  : 'border-transparent text-neutral-400'
+                }
+            `}
+            >
+              Shared Pools
+            </button>
+          </div>
+
+          {/* Content */}
+
+          <div className="flex-1 overflow-y-auto p-5">
+            {mainTab === 'pools' && (
+              <>
+                {poolView === 'list' ? (
+                  <div className="space-y-3">
+                    <button
+                      onClick={
+                        startCreatingPool
+                      }
+                      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-neutral-900 text-white text-xs font-bold hover:bg-neutral-800"
+                    >
+                      <Plus className="w-4 h-4" />
+                      New custom pool
+                    </button>
+
+                    {savedPools.map(
+                      (pool) => {
+                        const isActive =
+                          pool.id ===
+                          activePoolId;
+
+                        const linkedShared =
+                          pool.sharedPoolId
+                            ? sharedPools.find(
+                              (shared) =>
+                                shared.id ===
+                                pool.sharedPoolId
+                            )
+                            : undefined;
+
+                        return (
+                          <div
+                            key={pool.id}
+                            className={`
+                            rounded-xl border p-3
+                            ${isActive
+                                ? 'border-neutral-900'
+                                : 'border-neutral-200'
+                              }
+                          `}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-xs font-black text-neutral-900">
+                                    {pool.name}
+                                  </span>
+
+                                  {isActive && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-neutral-900 text-white text-[9px] font-bold">
+                                      <Check className="w-3 h-3" />
+                                      Active
+                                    </span>
+                                  )}
+
+                                  {linkedShared && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-neutral-100 text-neutral-600 text-[9px] font-bold">
+                                      <Link2 className="w-3 h-3" />
+                                      {linkedShared.name}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <p className="text-[11px] text-neutral-400 mt-1">
+                                  {describePool(
+                                    pool,
+                                    sharedPools
+                                  )}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  onClick={() =>
+                                    startEditingPool(
+                                      pool
+                                    )
+                                  }
+                                  className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100"
+                                  title="Edit pool"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+
+                                {!pool.isPreset && (
+                                  <button
+                                    onClick={() =>
+                                      onDeletePool(
+                                        pool.id
+                                      )
+                                    }
+                                    className="p-1.5 rounded-lg text-neutral-400 hover:text-red-600 hover:bg-red-50"
+                                    title="Delete pool"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex justify-end mt-2">
+                              {!isActive && (
+                                <button
+                                  onClick={() => {
+                                    onSelectPool(
+                                      pool
+                                    );
+                                    onClose();
+                                  }}
+                                  className="px-3 py-1.5 rounded-lg bg-neutral-900 text-white text-[11px] font-bold"
+                                >
+                                  Load
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      }
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <button
+                      onClick={() =>
+                        setPoolView('list')
+                      }
+                      className="flex items-center gap-1 text-xs font-bold text-neutral-500 hover:text-neutral-900"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Back to pools
+                    </button>
+
+                    <div>
+                      <h2 className="text-lg font-black text-neutral-900">
+                        {editingPoolId
+                          ? 'Edit custom pool'
+                          : 'New custom pool'}
+                      </h2>
+
+                      <p className="text-xs text-neutral-400 mt-1">
+                        Build your pool using the number picker.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-700 mb-1.5">
+                        Pool name
+                      </label>
+
+                      <input
+                        value={name}
+                        onChange={(event) =>
+                          setName(
+                            event.target.value
+                          )
+                        }
+                        maxLength={40}
+                        placeholder="e.g. Office Raffle"
+                        className="w-full px-3 py-2.5 rounded-xl border border-neutral-300 text-sm outline-none focus:border-neutral-900"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-700 mb-1.5">
+                        Numbers
+                      </label>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setGridOpen(true)
+                        }
+                        className="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl border border-dashed border-neutral-300 hover:border-neutral-900 text-left"
+                      >
+                        <div>
+                          <div className="text-xs font-bold text-neutral-900">
+                            {numbers.length
+                              ? `${numbers.length} own number${numbers.length ===
+                                1
+                                ? ''
+                                : 's'
+                              }`
+                              : 'No own numbers yet'}
+                          </div>
+
+                          <div className="text-[10px] text-neutral-400 mt-0.5">
+                            Click to open 1–90 picker
+                          </div>
+                        </div>
+
+                        <Plus className="w-4 h-4 text-neutral-500" />
+                      </button>
+                    </div>
+
+                    {/* Shared pool link */}
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-xs font-bold text-neutral-700">
+                          Borrow from shared pool
+                        </label>
+
+                        <Link2 className="w-4 h-4 text-neutral-400" />
+                      </div>
+
+                      <select
+                        value={sharedPoolId}
+                        onChange={(event) => {
+                          setSharedPoolId(
+                            event.target.value
+                          );
+
+                          const selected =
+                            sharedPools.find(
+                              (pool) =>
+                                pool.id ===
+                                event.target.value
+                            );
+
+                          if (
+                            selected &&
+                            numbersToPick >
+                            numbers.length +
+                            selected.numbers
+                              .length
+                          ) {
+                            setNumbersToPick(
+                              Math.max(
+                                1,
+                                numbers.length +
+                                selected
+                                  .numbers
+                                  .length
+                              )
+                            );
+                          }
+                        }}
+                        className="w-full px-3 py-2.5 rounded-xl border border-neutral-300 bg-white text-sm outline-none focus:border-neutral-900"
+                      >
+                        <option value="">
+                          No shared pool
+                        </option>
+
+                        {sharedPools.map(
+                          (pool) => (
+                            <option
+                              key={pool.id}
+                              value={pool.id}
+                            >
+                              {pool.name} —{' '}
+                              {pool.numbers.length}{' '}
+                              numbers
+                            </option>
+                          )
+                        )}
+                      </select>
+
+                      {sharedPoolId && (
+                        <p className="text-[10px] text-neutral-400 mt-1.5">
+                          Numbers from this shared
+                          pool are borrowed automatically.
+                          Changes to the shared pool will
+                          affect this pool.
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Balls */}
+
+                    <div className="flex items-center justify-between rounded-xl border border-neutral-200 p-3">
+                      <div>
+                        <div className="text-xs font-bold text-neutral-800">
+                          Balls to draw
+                        </div>
+
+                        <div className="text-[10px] text-neutral-400 mt-0.5">
+                          Available: {effectiveNumbers.length}
+                        </div>
+                      </div>
+
+                      <input
+                        type="number"
+                        min={1}
+                        max={Math.max(
+                          1,
+                          effectiveNumbers.length
+                        )}
+                        value={numbersToPick}
+                        onChange={(event) =>
+                          setNumbersToPick(
+                            Math.max(
+                              1,
+                              Math.min(
+                                effectiveNumbers.length ||
+                                1,
+                                Number(
+                                  event.target.value
+                                ) || 1
+                              )
+                            )
+                          )
+                        }
+                        className="w-20 px-2 py-1.5 text-center rounded-lg border border-neutral-300 text-sm font-black"
+                      />
+                    </div>
+
+                    {/* Preview */}
+
+                    <div className="rounded-xl bg-neutral-50 border border-neutral-200 p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-neutral-400">
+                          Pool preview
+                        </span>
+
+                        <span className="text-[10px] font-bold text-neutral-500">
+                          {effectiveNumbers.length}{' '}
+                          total
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                        {effectiveNumbers
+                          .slice(0, 80)
+                          .map(
+                            (number, index) => (
+                              <span
+                                key={`${number}-${index}`}
+                                className="w-7 h-7 rounded-full bg-white border border-neutral-200 flex items-center justify-center text-[10px] font-bold text-neutral-800"
+                              >
+                                {number}
+                              </span>
+                            )
+                          )}
+
+                        {effectiveNumbers.length >
+                          80 && (
+                            <span className="px-2 text-[10px] font-bold text-neutral-400 flex items-center">
+                              +
+                              {effectiveNumbers.length -
+                                80}{' '}
+                              more
+                            </span>
+                          )}
+                      </div>
+                    </div>
+
+                    {error && (
+                      <div className="flex items-center gap-2 p-3 rounded-xl bg-neutral-100 border border-neutral-300 text-xs font-medium text-neutral-800">
+                        <AlertCircle className="w-4 h-4 shrink-0" />
+                        {error}
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 pt-2 border-t border-neutral-100">
+                      <button
+                        onClick={() =>
+                          setPoolView('list')
+                        }
+                        className="flex-1 py-2.5 rounded-xl text-xs font-bold text-neutral-600 hover:bg-neutral-100"
+                      >
+                        Cancel
+                      </button>
+
+                      <button
+                        onClick={savePool}
+                        className="flex-[1.5] py-2.5 rounded-xl bg-neutral-900 text-white text-xs font-bold"
+                      >
+                        {editingPoolId
+                          ? 'Save changes'
+                          : 'Create pool'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* SHARED POOLS */}
+
+            {mainTab === 'shared' && (
+              <>
+                {sharedView === 'list' ? (
+                  <div className="space-y-3">
+                    <button
+                      onClick={
+                        startCreatingSharedPool
+                      }
+                      className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-neutral-900 text-white text-xs font-bold"
+                    >
+                      <Plus className="w-4 h-4" />
+                      New shared pool
+                    </button>
+
+                    {sharedPools.length ===
+                      0 && (
+                        <div className="text-center py-10">
+                          <Layers className="w-8 h-8 mx-auto text-neutral-300 mb-2" />
+
+                          <p className="text-sm font-bold text-neutral-700">
+                            No shared pools
+                          </p>
+
+                          <p className="text-xs text-neutral-400 mt-1">
+                            Create one to let multiple
+                            custom pools borrow the same
+                            numbers.
+                          </p>
+                        </div>
+                      )}
+
+                    {sharedPools.map(
+                      (pool) => {
+                        const linkedCount =
+                          savedPools.filter(
+                            (custom) =>
+                              custom.sharedPoolId ===
+                              pool.id
+                          ).length;
+
+                        return (
+                          <div
+                            key={pool.id}
+                            className="rounded-xl border border-neutral-200 p-3"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="text-xs font-black text-neutral-900">
+                                  {pool.name}
+                                </div>
+
+                                <div className="text-[10px] text-neutral-400 mt-1">
+                                  {pool.numbers.length}{' '}
+                                  numbers
+                                  {linkedCount > 0 &&
+                                    ` • ${linkedCount} custom pool${linkedCount ===
+                                      1
+                                      ? ''
+                                      : 's'
+                                    } linked`}
+                                </div>
+                              </div>
+
+                              <div className="flex gap-1">
+                                <button
+                                  onClick={() =>
+                                    startEditingSharedPool(
+                                      pool
+                                    )
+                                  }
+                                  className="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-900 hover:bg-neutral-100"
+                                >
+                                  <Edit3 className="w-4 h-4" />
+                                </button>
+
+                                <button
+                                  onClick={() =>
+                                    onDeleteSharedPool(
+                                      pool.id
+                                    )
+                                  }
+                                  className="p-1.5 rounded-lg text-neutral-400 hover:text-red-600 hover:bg-red-50"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="flex flex-wrap gap-1.5 mt-3 max-h-20 overflow-hidden">
+                              {pool.numbers
+                                .slice(0, 25)
+                                .map(
+                                  (
+                                    number,
+                                    index
+                                  ) => (
+                                    <span
+                                      key={`${pool.id}-${number}-${index}`}
+                                      className="w-7 h-7 rounded-full border border-neutral-200 bg-neutral-50 flex items-center justify-center text-[10px] font-bold"
+                                    >
+                                      {number}
+                                    </span>
+                                  )
+                                )}
+
+                              {pool.numbers.length >
+                                25 && (
+                                  <span className="text-[10px] font-bold text-neutral-400 flex items-center px-1">
+                                    +
+                                    {pool.numbers.length -
+                                      25}
+                                  </span>
+                                )}
+                            </div>
+                          </div>
+                        );
+                      }
+                    )}
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <button
+                      onClick={() =>
+                        setSharedView('list')
+                      }
+                      className="flex items-center gap-1 text-xs font-bold text-neutral-500 hover:text-neutral-900"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                      Back to shared pools
+                    </button>
+
+                    <div>
+                      <h2 className="text-lg font-black text-neutral-900">
+                        {editingSharedPoolId
+                          ? 'Edit shared pool'
+                          : 'New shared pool'}
+                      </h2>
+
+                      <p className="text-xs text-neutral-400 mt-1">
+                        Any custom pool linked to this
+                        pool will receive its numbers.
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-neutral-700 mb-1.5">
+                        Shared pool name
+                      </label>
+
+                      <input
+                        value={name}
+                        onChange={(event) =>
+                          setName(
+                            event.target.value
+                          )
+                        }
+                        maxLength={40}
+                        placeholder="e.g. Weekend Numbers"
+                        className="w-full px-3 py-2.5 rounded-xl border border-neutral-300 text-sm outline-none focus:border-neutral-900"
+                      />
+                    </div>
+
+                    <button
+                      onClick={() =>
+                        setSharedGridOpen(true)
+                      }
+                      className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-dashed border-neutral-300 hover:border-neutral-900"
+                    >
+                      <div className="text-left">
+                        <div className="text-xs font-bold">
+                          {numbers.length
+                            ? `${numbers.length} numbers selected`
+                            : 'Pick numbers'}
+                        </div>
+
+                        <div className="text-[10px] text-neutral-400 mt-0.5">
+                          Open 1–90 number picker
+                        </div>
+                      </div>
+
+                      <Plus className="w-4 h-4 text-neutral-500" />
+                    </button>
+
+                    {numbers.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-3 rounded-xl bg-neutral-50 border border-neutral-200">
+                        {numbers.map(
+                          (
+                            number,
+                            index
+                          ) => (
+                            <span
+                              key={`${number}-${index}`}
+                              className="w-7 h-7 rounded-full bg-white border border-neutral-200 flex items-center justify-center text-[10px] font-bold"
+                            >
+                              {number}
+                            </span>
+                          )
+                        )}
+                      </div>
+                    )}
+
+                    {error && (
+                      <div className="flex items-center gap-2 p-3 rounded-xl bg-neutral-100 border border-neutral-300 text-xs font-medium">
+                        <AlertCircle className="w-4 h-4" />
+                        {error}
+                      </div>
+                    )}
+
+                    <div className="flex gap-2 pt-2 border-t border-neutral-100">
+                      <button
+                        onClick={() =>
+                          setSharedView('list')
+                        }
+                        className="flex-1 py-2.5 rounded-xl text-xs font-bold text-neutral-600"
+                      >
+                        Cancel
+                      </button>
+
+                      <button
+                        onClick={
+                          saveSharedPool
+                        }
+                        className="flex-[1.5] py-2.5 rounded-xl bg-neutral-900 text-white text-xs font-bold"
+                      >
+                        {editingSharedPoolId
+                          ? 'Save changes'
+                          : 'Create shared pool'}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
         </div>
+
+        <NumberGridPicker
+          isOpen={gridOpen}
+          numbers={numbers}
+          onChange={setNumbers}
+          onClose={() =>
+            setGridOpen(false)
+          }
+        />
+
+        <NumberGridPicker
+          isOpen={sharedGridOpen}
+          numbers={numbers}
+          onChange={setNumbers}
+          onClose={() =>
+            setSharedGridOpen(false)
+          }
+        />
       </div>
-    </div>
-  );
-};
+    );
+  };
