@@ -1,0 +1,27 @@
+{
+  "id": "/",
+  "name": "Lottery Machine Physics Simulator",
+  "short_name": "Lottery App",
+  "description": "Realistic 3D physics lottery tumbler machine with ball agitation and suction chute.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0F172A",
+  "theme_color": "#4F46E5",
+  "categories": ["utilities", "games", "entertainment"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ]
+}

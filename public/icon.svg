@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4F46E5"/>
+      <stop offset="100%" stop-color="#1E1B4B"/>
+    </linearGradient>
+    <radialGradient id="globeGrad" cx="40%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="#FFFFFF" stop-opacity="0.9"/>
+      <stop offset="70%" stop-color="#E2E8F0" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#94A3B8" stop-opacity="0.8"/>
+    </radialGradient>
+    <radialGradient id="ballRed" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#FEB2B2"/>
+      <stop offset="40%" stop-color="#E53E3E"/>
+      <stop offset="100%" stop-color="#9B2C2C"/>
+    </radialGradient>
+    <radialGradient id="ballGold" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#FEF08A"/>
+      <stop offset="40%" stop-color="#EAB308"/>
+      <stop offset="100%" stop-color="#A16207"/>
+    </radialGradient>
+    <radialGradient id="ballBlue" cx="35%" cy="35%" r="65%">
+      <stop offset="0%" stop-color="#BAE6FD"/>
+      <stop offset="40%" stop-color="#0284C7"/>
+      <stop offset="100%" stop-color="#0369A1"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Background Squircle for Android -->
+  <rect width="512" height="512" rx="120" fill="url(#bgGrad)" />
+
+  <!-- Outer Ring / Stand -->
+  <circle cx="256" cy="230" r="150" fill="none" stroke="#6366F1" stroke-width="12" opacity="0.6"/>
+  <circle cx="256" cy="230" r="140" fill="url(#globeGrad)"/>
+
+  <!-- Balls inside globe -->
+  <circle cx="220" cy="240" r="32" fill="url(#ballRed)"/>
+  <circle cx="220" cy="240" r="16" fill="#FFFFFF"/>
+  <text x="220" y="246" font-family="system-ui, sans-serif" font-weight="900" font-size="16" text-anchor="middle" fill="#0F172A">7</text>
+
+  <circle cx="280" cy="260" r="30" fill="url(#ballGold)"/>
+  <circle cx="280" cy="260" r="15" fill="#FFFFFF"/>
+  <text x="280" y="266" font-family="system-ui, sans-serif" font-weight="900" font-size="15" text-anchor="middle" fill="#0F172A">21</text>
+
+  <circle cx="256" cy="180" r="34" fill="url(#ballBlue)"/>
+  <circle cx="256" cy="180" r="17" fill="#FFFFFF"/>
+  <text x="256" y="186" font-family="system-ui, sans-serif" font-weight="900" font-size="16" text-anchor="middle" fill="#0F172A">42</text>
+
+  <!-- Glass Highlight -->
+  <ellipse cx="220" cy="160" rx="60" ry="20" transform="rotate(-30 220 160)" fill="#FFFFFF" opacity="0.3"/>
+
+  <!-- Machine Base -->
+  <path d="M190 380 L322 380 L340 430 L172 430 Z" fill="#312E81"/>
+  <rect x="172" y="430" width="168" height="14" rx="7" fill="#6366F1"/>
+</svg>

@@ -1,0 +1,8 @@
+{
+  "name": "Lottery Machine Physics Simulator",
+  "description": "Android mobile application and realistic lottery drum simulation with spinning tumbler physics, ball agitation, haptic feedback, and custom pools.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
