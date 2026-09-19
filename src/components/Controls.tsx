@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Volume2, VolumeX, Disc3, Wind, Hash, SlidersHorizontal } from 'lucide-react';
 import { CustomPool } from '../types';
 
@@ -39,17 +39,35 @@ export const Controls: React.FC<ControlsProps> = ({
   const canChangeCount = !isDrawing && drawnCount === 0;
 
   const clamp = (val: number) => Math.min(Math.max(val, 1), maxNumbersToPick);
+  const clampRange = (val: number) => Math.min(Math.max(val, poolMin), poolMax);
 
-  const handleInputChange = (raw: string) => {
+  // Local text buffers let the inputs go empty / be selected-and-overtyped
+  // while typing, without the parent's numeric state snapping them back.
+  const [countText, setCountText] = useState(String(numbersToPick));
+  const [fromText, setFromText] = useState(String(rangeFrom));
+  const [toText, setToText] = useState(String(rangeTo));
+
+  useEffect(() => setCountText(String(numbersToPick)), [numbersToPick]);
+  useEffect(() => setFromText(String(rangeFrom)), [rangeFrom]);
+  useEffect(() => setToText(String(rangeTo)), [rangeTo]);
+
+  const handleCountChange = (raw: string) => {
+    setCountText(raw);
     if (raw === '') return;
     const parsed = parseInt(raw, 10);
     if (Number.isNaN(parsed)) return;
     onNumbersToPickChange(clamp(parsed));
   };
 
-  const clampRange = (val: number) => Math.min(Math.max(val, poolMin), poolMax);
+  const handleCountBlur = () => {
+    const parsed = parseInt(countText, 10);
+    const next = clamp(Number.isNaN(parsed) ? 1 : parsed);
+    onNumbersToPickChange(next);
+    setCountText(String(next));
+  };
 
   const handleRangeFromChange = (raw: string) => {
+    setFromText(raw);
     if (raw === '') return;
     const parsed = parseInt(raw, 10);
     if (Number.isNaN(parsed)) return;
@@ -58,13 +76,28 @@ export const Controls: React.FC<ControlsProps> = ({
     onRangeFromChange(Math.min(next, rangeTo));
   };
 
+  const handleRangeFromBlur = () => {
+    const parsed = parseInt(fromText, 10);
+    const next = Math.min(clampRange(Number.isNaN(parsed) ? poolMin : parsed), rangeTo);
+    onRangeFromChange(next);
+    setFromText(String(next));
+  };
+
   const handleRangeToChange = (raw: string) => {
+    setToText(raw);
     if (raw === '') return;
     const parsed = parseInt(raw, 10);
     if (Number.isNaN(parsed)) return;
     const next = clampRange(parsed);
     // "To" can't go below "From"
     onRangeToChange(Math.max(next, rangeFrom));
+  };
+
+  const handleRangeToBlur = () => {
+    const parsed = parseInt(toText, 10);
+    const next = Math.max(clampRange(Number.isNaN(parsed) ? poolMax : parsed), rangeFrom);
+    onRangeToChange(next);
+    setToText(String(next));
   };
 
   return (
@@ -88,10 +121,10 @@ export const Controls: React.FC<ControlsProps> = ({
             type="number"
             min={1}
             max={maxNumbersToPick}
-            value={numbersToPick}
+            value={countText}
             disabled={!canChangeCount}
-            onChange={(e) => handleInputChange(e.target.value)}
-            onBlur={(e) => onNumbersToPickChange(clamp(Number(e.target.value) || 1))}
+            onChange={(e) => handleCountChange(e.target.value)}
+            onBlur={handleCountBlur}
             className="w-20 bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-xs font-semibold text-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <input
@@ -122,10 +155,10 @@ export const Controls: React.FC<ControlsProps> = ({
             type="number"
             min={poolMin}
             max={rangeTo}
-            value={rangeFrom}
+            value={fromText}
             disabled={!canChangeCount}
             onChange={(e) => handleRangeFromChange(e.target.value)}
-            onBlur={(e) => onRangeFromChange(Math.min(clampRange(Number(e.target.value) || poolMin), rangeTo))}
+            onBlur={handleRangeFromBlur}
             className="w-16 bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-xs font-semibold text-neutral-800 text-center disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <span className="text-xs text-neutral-400 font-medium">to</span>
@@ -133,10 +166,10 @@ export const Controls: React.FC<ControlsProps> = ({
             type="number"
             min={rangeFrom}
             max={poolMax}
-            value={rangeTo}
+            value={toText}
             disabled={!canChangeCount}
             onChange={(e) => handleRangeToChange(e.target.value)}
-            onBlur={(e) => onRangeToChange(Math.max(clampRange(Number(e.target.value) || poolMax), rangeFrom))}
+            onBlur={handleRangeToBlur}
             className="w-16 bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-xs font-semibold text-neutral-800 text-center disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <span className="text-[10px] text-neutral-400 ml-auto">pool: {poolMin}–{poolMax}</span>
