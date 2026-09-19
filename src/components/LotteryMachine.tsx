@@ -16,10 +16,6 @@ import { Zap, RotateCcw } from 'lucide-react';
 import { LotteryMachineHandle, LotteryMachineProps, Phase } from '../types';
 import { soundEffects } from '../utils/audio';
 
-/* ------------------------------------------------------------------ */
-/*  Dimensions & Constants                                            */
-/* ------------------------------------------------------------------ */
-
 const W = 360;
 const H = 530;
 
@@ -28,13 +24,11 @@ const GLOBE_CY = 175;
 const GLOBE_R = 126;
 const BALL_R = 9.5;
 
-// Paddles that physically rotate with the drum and scoop up balls
 const NUM_PADDLES = 4;
 const PADDLE_LEN = 38;
 const PADDLE_THICK = 6;
 const PADDLE_DIST = GLOBE_R - PADDLE_LEN / 2 - 2;
 
-// Funnel & Exit Tube geometry
 const FUNNEL_TOP = { x: GLOBE_CX, y: GLOBE_CY + GLOBE_R - 8 };
 const PIPE_TOP = { x: GLOBE_CX, y: GLOBE_CY + GLOBE_R + 14 };
 const TRAY_Y = H - 56;
@@ -45,22 +39,20 @@ const TRAY_R = 12;
 const TRAY_GAP = 6;
 const TRAY_ROW_GAP = 5;
 
-// Physics parameters
 const RESTITUTION = 0.72;
 const BALL_FRICTION = 0.02;
 const BALL_AIR = 0.003;
 const BALL_DENSITY = 0.002;
-const GRAVITY_Y = 0.45; // Real natural downward gravity
+const GRAVITY_Y = 0.45;
 
-// 6 distinct lottery ball color groups
 export const BALL_PALETTE = [
-  { bg: '#E53E3E', text: '#FFFFFF', highlight: '#FEB2B2', border: '#9B2C2C' }, // Red
-  { bg: '#DD6B20', text: '#FFFFFF', highlight: '#FBD38D', border: '#9C4221' }, // Orange
-  { bg: '#D69E2E', text: '#FFFFFF', highlight: '#FAF089', border: '#975A16' }, // Gold
-  { bg: '#38A169', text: '#FFFFFF', highlight: '#9AE6B4', border: '#22543D' }, // Green
-  { bg: '#3182CE', text: '#FFFFFF', highlight: '#90CDF4', border: '#2A4365' }, // Blue
-  { bg: '#805AD5', text: '#FFFFFF', highlight: '#D6BCFA', border: '#44337A' }, // Purple
-  { bg: '#D53F8C', text: '#FFFFFF', highlight: '#FBB6CE', border: '#702459' }, // Magenta
+  { bg: '#E53E3E', text: '#FFFFFF', highlight: '#FEB2B2', border: '#9B2C2C' },
+  { bg: '#DD6B20', text: '#FFFFFF', highlight: '#FBD38D', border: '#9C4221' },
+  { bg: '#D69E2E', text: '#FFFFFF', highlight: '#FAF089', border: '#975A16' },
+  { bg: '#38A169', text: '#FFFFFF', highlight: '#9AE6B4', border: '#22543D' },
+  { bg: '#3182CE', text: '#FFFFFF', highlight: '#90CDF4', border: '#2A4365' },
+  { bg: '#805AD5', text: '#FFFFFF', highlight: '#D6BCFA', border: '#44337A' },
+  { bg: '#D53F8C', text: '#FFFFFF', highlight: '#FBB6CE', border: '#702459' },
 ];
 
 interface LottoBody extends Body {
@@ -106,7 +98,14 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       onReset,
       isDrawing,
       isComplete,
+      drawMin,
+      drawMax,
     } = props;
+
+    // The window of numbers ELIGIBLE to be pulled as a winner. Falls back to
+    // the full pool bounds when the caller doesn't restrict drawing.
+    const effectiveDrawMin = drawMin ?? min;
+    const effectiveDrawMax = drawMax ?? max;
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null);
     const [phase, setPhase] = useState<Phase>('idle');
@@ -119,7 +118,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
 
     const fpsRef = useRef(60);
 
-    // References for loop and physics state
     const engineRef = useRef<Engine | null>(null);
     const bodiesRef = useRef<LottoBody[]>([]);
     const paddlesRef = useRef<Body[]>([]);
@@ -137,6 +135,15 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
     const phaseStartedRef = useRef(Date.now());
     const animFrameRef = useRef<number>(0);
 
+    // Live drawable window, readable inside the render-loop closure without
+    // forcing setupPhysics (which respawns every ball) to rerun on range change.
+    const drawMinRef = useRef(effectiveDrawMin);
+    const drawMaxRef = useRef(effectiveDrawMax);
+    useEffect(() => {
+      drawMinRef.current = effectiveDrawMin;
+      drawMaxRef.current = effectiveDrawMax;
+    }, [effectiveDrawMin, effectiveDrawMax]);
+
     useEffect(() => {
       onDrawnRef.current = onBallDrawn;
     }, [onBallDrawn]);
@@ -145,10 +152,18 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       soundEffects.setEnabled(soundEnabled);
     }, [soundEnabled]);
 
-    const rangeSize = Math.max(0, max - min + 1);
-    const target = Math.max(0, Math.min(numbersToPick, rangeSize));
+    // Full pool that spawns in the globe (never filtered by range).
+    const fullPool = customNumbers && customNumbers.length > 0
+      ? customNumbers
+      : Array.from({ length: Math.max(0, max - min + 1) }, (_, i) => min + i);
 
-    // Tray layout
+    // How many balls are currently ELIGIBLE to be drawn (within the range window).
+    const drawableCount = fullPool.filter(
+      (n) => n >= effectiveDrawMin && n <= effectiveDrawMax
+    ).length;
+
+    const target = Math.max(0, Math.min(numbersToPick, drawableCount));
+
     const TRAY_COLS = target <= 8 ? Math.max(1, target) : 8;
     const TRAY_ROWS = target > 0 ? Math.ceil(target / TRAY_COLS) : 0;
     const TRAY_CELL_W = TRAY_R * 2 + TRAY_GAP;
@@ -178,7 +193,9 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       }
     }, [speedMultiplier]);
 
-    // Build Matter.js environment with smooth polygon circle walls and rotating lifter vanes
+    // Build Matter.js environment — ALWAYS spawns the FULL pool. Range never
+    // affects what's physically in the globe; it only restricts what
+    // triggerSingleDraw is allowed to pick (see below).
     const setupPhysics = useCallback(() => {
       clearTimers();
       if (engineRef.current) {
@@ -196,7 +213,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         gravity: { x: 0, y: GRAVITY_Y, scale: 0.001 },
       });
 
-      // 1. Create 40 segmented boundary wall segments (NO overlapping inner corner snags)
       const SEGMENTS = 40;
       const wallBodies: Body[] = [];
       const r = GLOBE_R;
@@ -218,11 +234,10 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       World.add(engine.world, wallBodies);
       wallBodiesRef.current = wallBodies;
 
-      // 2. Create 4 rotating internal lifter paddles (Kinematic bodies)
       const paddles: Body[] = [];
       for (let i = 0; i < NUM_PADDLES; i++) {
         const paddle = Bodies.rectangle(GLOBE_CX, GLOBE_CY, PADDLE_LEN, PADDLE_THICK, {
-          isStatic: true, // We will drive position & angle kinematically
+          isStatic: true,
           restitution: 0.6,
           friction: 0.2,
           chamfer: { radius: 2 },
@@ -232,22 +247,13 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       World.add(engine.world, paddles);
       paddlesRef.current = paddles;
 
-      // 3. Create balls inside the globe
-      const pool: number[] =
-        customNumbers && customNumbers.length > 0
-          ? [...customNumbers]
-          : [];
-      if (pool.length === 0) {
-        for (let v = min; v <= max; v++) {
-          pool.push(v);
-        }
-      }
+      // Spawn EVERY number in the full pool — range is not applied here.
+      const pool: number[] = fullPool.length > 0 ? [...fullPool] : [];
 
       const balls: LottoBody[] = [];
       const maxSpawnR = GLOBE_R - BALL_R * 2 - 12;
 
       pool.forEach((val) => {
-        // Distribute within sphere safely
         const a = Math.random() * Math.PI * 2;
         const sr = Math.sqrt(Math.random()) * maxSpawnR;
         const bx = GLOBE_CX + Math.cos(a) * sr;
@@ -261,7 +267,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         }) as LottoBody;
 
         b.lottoNumber = val;
-        // Give slight initial random jitter
         Body.setVelocity(b, {
           x: (Math.random() - 0.5) * 1.5,
           y: (Math.random() - 0.5) * 1.5,
@@ -274,7 +279,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       bodiesRef.current = balls;
       engineRef.current = engine;
 
-      // Sound trigger on high-impact collisions
       Events.on(engine, 'collisionStart', (event) => {
         if (!soundEffects.isEnabled()) return;
         event.pairs.forEach((pair) => {
@@ -288,25 +292,34 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       });
 
       setPhaseState('idle');
+      // fullPool intentionally NOT stringified into deps — customNumbers ref
+      // changes are already covered by the customNumbers dependency below.
     }, [min, max, customNumbers, clearTimers, setPhaseState]);
 
-    // Handle extraction trigger
+    // Handle extraction trigger — ONLY balls within the current draw window
+    // (drawMinRef/drawMaxRef) are eligible to be picked. Balls outside the
+    // window keep tumbling but are never candidates.
     const triggerSingleDraw = useCallback(() => {
       const eng = engineRef.current;
       if (!eng || bodiesRef.current.length === 0) return;
       if (exitRef.current || landingRef.current) return;
       if (reportedRef.current.size >= target) return;
 
-      // Find ball closest to bottom suction funnel or random pick if none close
-      const candidates = [...bodiesRef.current];
-      // Pick one with authentic selection bias towards bottom/suction area if in drawing phase
+      const dMin = drawMinRef.current;
+      const dMax = drawMaxRef.current;
+
+      const eligible = bodiesRef.current.filter(
+        (b) => b.lottoNumber >= dMin && b.lottoNumber <= dMax
+      );
+      if (eligible.length === 0) return; // nothing eligible right now — skip this tick
+
+      const candidates = [...eligible];
       candidates.sort((a, b) => {
         const distA = Math.hypot(a.position.x - FUNNEL_TOP.x, a.position.y - FUNNEL_TOP.y);
         const distB = Math.hypot(b.position.x - FUNNEL_TOP.x, b.position.y - FUNNEL_TOP.y);
         return distA - distB;
       });
 
-      // Select from top 4 closest balls or random for natural variance
       const pickPool = candidates.slice(0, Math.min(5, candidates.length));
       const chosen = pickPool[Math.floor(Math.random() * pickPool.length)];
 
@@ -337,14 +350,12 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       clearTimers();
       setPhaseState('falling');
 
-      // Stage 1: Agitate & start tumbling (500ms)
       timersRef.current.push(
         setTimeout(() => {
           setPhaseState('spinning');
         }, 600)
       );
 
-      // Stage 2: Full spin (2000ms), then begin drawing sequence
       timersRef.current.push(
         setTimeout(() => {
           if (bodiesRef.current.length === 0) return;
@@ -369,7 +380,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       );
     }, [clearTimers, setPhaseState, target, triggerSingleDraw, speedMultiplier]);
 
-    // Expose imperative handle
     useImperativeHandle(
       ref,
       () => ({
@@ -396,7 +406,8 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       [startDrawSequence, setPhaseState, triggerSingleDraw, setupPhysics]
     );
 
-    // Initial setup and reset on range changes
+    // Full-pool spawn only depends on the pool itself, NOT the range window —
+    // changing the range must never respawn/reset the globe.
     useEffect(() => {
       setupPhysics();
       return () => {
@@ -405,16 +416,14 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
           Engine.clear(engineRef.current);
         }
       };
-    }, [min, max, numbersToPick, setupPhysics, clearTimers]);
+    }, [min, max, customNumbers, setupPhysics, clearTimers]);
 
-    // Continuous Animation & Physics Render Loop
     useEffect(() => {
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      // Handle Retina High-DPI
       const dpr = window.devicePixelRatio || 1;
       canvas.width = W * dpr;
       canvas.height = H * dpr;
@@ -432,11 +441,9 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         const eng = engineRef.current;
         const now = Date.now();
 
-        // 1. Update drum speed and angle
         drumSpeedRef.current += (targetDrumSpeedRef.current - drumSpeedRef.current) * 0.04;
         drumAngleRef.current += drumSpeedRef.current * (dt * 60);
 
-        // 2. Update physical rotating paddles (Kinematic bodies)
         const currentDrumAngle = drumAngleRef.current;
         paddlesRef.current.forEach((paddle, i) => {
           const paddleAngle = currentDrumAngle + (i * Math.PI * 2) / NUM_PADDLES;
@@ -448,7 +455,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
           Body.setAngle(paddle, tangentialAngle);
         });
 
-        // 3. Air blower / tangential swirl force in spinning/drawing modes
         if (eng && bodiesRef.current.length > 0) {
           const isSpinning = phaseRef.current === 'spinning' || phaseRef.current === 'drawing' || phaseRef.current === 'falling';
 
@@ -459,7 +465,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
 
             if (isSpinning) {
               if (machineType === 'mechanical') {
-                // Outer perimeter friction: drum surface drags balls along in rotation direction
                 if (dist > GLOBE_R - BALL_R * 2.2) {
                   const tanX = -dy / dist;
                   const tanY = dx / dist;
@@ -470,7 +475,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
                   });
                 }
               } else {
-                // Blower mode: bottom air jet blasting upwards with turbulent eddy currents
                 if (ball.position.y > GLOBE_CY + 30) {
                   const upwardLift = (ball.position.y - (GLOBE_CY + 30)) * 0.000045;
                   const turbX = (Math.random() - 0.5) * 0.0008;
@@ -479,7 +483,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
                     y: -upwardLift * speedMultiplier,
                   });
                 }
-                // Cyclonic circulation
                 const tanX = -dy / dist;
                 const tanY = dx / dist;
                 Body.applyForce(ball, ball.position, {
@@ -489,7 +492,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
               }
             }
 
-            // Clamping max velocity to avoid tunneling
             const spd = Math.hypot(ball.velocity.x, ball.velocity.y);
             const MAX_V = 16;
             if (spd > MAX_V) {
@@ -497,7 +499,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
               Body.setVelocity(ball, { x: ball.velocity.x * scale, y: ball.velocity.y * scale });
             }
 
-            // Exact spherical containment safeguard
             const maxAllowedDist = GLOBE_R - BALL_R - 1.5;
             if (dist > maxAllowedDist) {
               const nx = dx / dist;
@@ -506,7 +507,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
                 x: GLOBE_CX + nx * maxAllowedDist,
                 y: GLOBE_CY + ny * maxAllowedDist,
               });
-              // Normal bounce velocity reflection
               const vDotN = ball.velocity.x * nx + ball.velocity.y * ny;
               if (vDotN > 0) {
                 Body.setVelocity(ball, {
@@ -517,7 +517,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
             }
           });
 
-          // Run Matter.js physics step with substeps for rock-solid stability
           const subSteps = 3;
           const stepDelta = 1000 / 60 / subSteps;
           for (let s = 0; s < subSteps; s++) {
@@ -525,14 +524,12 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
           }
         }
 
-        // 4. Update Exit / Suction tube animation
         const ex = exitRef.current;
         if (ex) {
           const elapsed = now - ex.started;
           const t = Math.min(1, elapsed / ex.duration);
           ex.angle += 0.22;
 
-          // Three-stage curve: globe extraction -> funnel choke -> tube drop
           const p0 = { x: ex.sx, y: ex.sy };
           const p1 = FUNNEL_TOP;
           const p2 = PIPE_TOP;
@@ -543,7 +540,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
 
           if (t < 0.3) {
             const easeT = t / 0.3;
-            // Arc into funnel
             cx = p0.x + (p1.x - p0.x) * easeT;
             cy = p0.y + (p1.y - p0.y) * easeT;
           } else if (t < 0.6) {
@@ -552,7 +548,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
             cy = p1.y + (p2.y - p1.y) * easeT;
           } else {
             const easeT = (t - 0.6) / 0.4;
-            // Accelerating drop down tube
             const accelT = easeT * easeT;
             cx = p2.x + (p3.x - p2.x) * easeT;
             cy = p2.y + (p3.y - p2.y) * accelT;
@@ -585,7 +580,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
           }
         }
 
-        // 5. Update Landing tray roll animation
         const ln = landingRef.current;
         if (ln) {
           const elapsed = now - ln.started;
@@ -606,7 +600,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
           }
         }
 
-        // 6. Complete draw phase check
         if (
           phaseRef.current === 'drawing' &&
           (reportedRef.current.size >= target || bodiesRef.current.length === 0) &&
@@ -620,35 +613,24 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
           }
         }
 
-        /* ---------------------------------------------------------- */
-        /*  CANVAS RENDERING                                          */
-        /* ---------------------------------------------------------- */
         ctx.clearRect(0, 0, W, H);
 
-        // A. Background Machine Stand & Housing
         drawHousing(ctx);
-
-        // B. Acrylic Sphere Interior & Rotating Tumbler Drum
         drawDrum(ctx, currentDrumAngle);
 
-        // C. Tumbling Physics Balls
         bodiesRef.current.forEach((b) => {
           drawBall(ctx, b.lottoNumber, b.position.x, b.position.y, b.angle, BALL_R);
         });
 
-        // D. Suction / Exit Tube Chute
         drawExitTube(ctx);
 
-        // E. Animated Exit Ball in Tube
         if (exitRef.current) {
           const eb = exitRef.current;
           drawBall(ctx, eb.value, eb.currentX, eb.currentY, eb.angle, BALL_R);
         }
 
-        // F. Landing Tray & Sockets
         drawTray(ctx, target, TRAY_COLS, TRAY_CELL_W, trayLeft, trayTop);
 
-        // G. Settled Balls in Tray
         drawnNumbers.forEach((val, i) => {
           if (val == null) return;
           const row = Math.floor(i / TRAY_COLS);
@@ -661,11 +643,9 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
           drawBall(ctx, val, sx, sy, 0, TRAY_R);
         });
 
-        // H. Active Landing Ball rolling into tray
         if (landingRef.current) {
           const l = landingRef.current;
           const t = Math.min(1, (now - l.started) / l.duration);
-          // Cubic ease out
           const k = 1 - Math.pow(1 - t, 3);
           const hop = Math.sin(t * Math.PI) * 7;
           const curX = l.sx + (l.tx - l.sx) * k;
@@ -673,13 +653,9 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
           drawBall(ctx, l.value, curX, curY, t * Math.PI * 2, TRAY_R);
         }
 
-        // I. Glass Sphere Highlights & Rim Bezel
         drawGlassOverlay(ctx);
-
-        // J. Status Badge
         drawStatusBadge(ctx, phaseRef.current);
 
-        // K. Physics Debug Wireframe & Force Vectors
         if (debugModeRef.current) {
           drawPhysicsDebug(ctx, fpsRef.current);
         }
@@ -704,15 +680,9 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       setPhaseState,
     ]);
 
-    /* -------------------------------------------------------------- */
-    /*  Canvas Helper Functions                                       */
-    /* -------------------------------------------------------------- */
-
     function drawHousing(ctx: CanvasRenderingContext2D) {
-      // Pedestal stand (flat matte)
       ctx.save();
 
-      // Top chrome canopy / crown
       const grad = ctx.createLinearGradient(
         GLOBE_CX,
         GLOBE_CY - GLOBE_R - 22,
@@ -730,14 +700,12 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       ctx.closePath();
       ctx.fill();
 
-      // Outer bezel ring
       ctx.beginPath();
       ctx.arc(GLOBE_CX, GLOBE_CY, GLOBE_R + 10, 0, Math.PI * 2);
       ctx.strokeStyle = '#94A3B8';
       ctx.lineWidth = 4;
       ctx.stroke();
 
-      // Inner chamber backdrop (flat studio fill)
       ctx.fillStyle = '#F8FAFC';
       ctx.beginPath();
       ctx.arc(GLOBE_CX, GLOBE_CY, GLOBE_R, 0, Math.PI * 2);
@@ -747,7 +715,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
 
     function drawDrum(ctx: CanvasRenderingContext2D, drumAngle: number) {
       ctx.save();
-      // Rotating outer rim marker & wire ribs
       ctx.strokeStyle = 'rgba(148, 163, 184, 0.45)';
       ctx.lineWidth = 1.5;
 
@@ -765,25 +732,16 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         ctx.stroke();
       }
 
-      // Rotating paddles with metallic highlight
       paddlesRef.current.forEach((paddle) => {
         ctx.save();
         ctx.translate(paddle.position.x, paddle.position.y);
         ctx.rotate(paddle.angle);
 
-        // Paddle blade (flat matte)
         ctx.fillStyle = '#64748B';
         ctx.beginPath();
-        ctx.roundRect(
-          -PADDLE_LEN / 2,
-          -PADDLE_THICK / 2,
-          PADDLE_LEN,
-          PADDLE_THICK,
-          3
-        );
+        ctx.roundRect(-PADDLE_LEN / 2, -PADDLE_THICK / 2, PADDLE_LEN, PADDLE_THICK, 3);
         ctx.fill();
 
-        // Paddle tip rubber guard
         ctx.fillStyle = '#334155';
         ctx.beginPath();
         ctx.arc(-PADDLE_LEN / 2, 0, PADDLE_THICK / 2, 0, Math.PI * 2);
@@ -793,7 +751,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         ctx.restore();
       });
 
-      // Center chrome axle hub
       ctx.fillStyle = '#CBD5E1';
       ctx.beginPath();
       ctx.arc(GLOBE_CX, GLOBE_CY, 16, 0, Math.PI * 2);
@@ -802,7 +759,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Spinning axle logo / star mark
       ctx.save();
       ctx.translate(GLOBE_CX, GLOBE_CY);
       ctx.rotate(drumAngle * 2);
@@ -834,18 +790,15 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       ctx.save();
       ctx.translate(x, y);
 
-      // Flat spherical ball base
       ctx.fillStyle = theme.bg;
       ctx.beginPath();
       ctx.arc(0, 0, r, 0, Math.PI * 2);
       ctx.fill();
 
-      // Perimeter rim definition
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
       ctx.lineWidth = 0.8;
       ctx.stroke();
 
-      // Central white number circle / decal
       ctx.rotate(angle);
       const decalR = r * 0.64;
       ctx.fillStyle = '#FFFFFF';
@@ -853,7 +806,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       ctx.arc(0, 0, decalR, 0, Math.PI * 2);
       ctx.fill();
 
-      // Crisp numbered text
       ctx.fillStyle = '#0F172A';
       const valStr = String(val);
       const fontFactor = valStr.length >= 3 ? 0.60 : valStr.length === 2 ? 0.82 : 0.90;
@@ -867,7 +819,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
 
     function drawExitTube(ctx: CanvasRenderingContext2D) {
       ctx.save();
-      // Lower funnel guide
       const fTopW = 28;
       const fBotW = TUBE_HW + 2;
 
@@ -880,7 +831,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       ctx.closePath();
       ctx.fill();
 
-      // Funnel mouth suction glow
       if (phaseRef.current === 'drawing') {
         ctx.strokeStyle = '#38BDF8';
         ctx.lineWidth = 2.5;
@@ -889,16 +839,13 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         ctx.stroke();
       }
 
-      // Acrylic transparent chute tube
       const tubeLeft = GLOBE_CX - TUBE_HW;
       const tubeRight = GLOBE_CX + TUBE_HW;
       const tubeHeight = TUBE_END.y - PIPE_TOP.y;
 
-      // Tube outer glass casing (flat frosted)
       ctx.fillStyle = 'rgba(148, 163, 184, 0.45)';
       ctx.fillRect(tubeLeft, PIPE_TOP.y, TUBE_HW * 2, tubeHeight);
 
-      // Tube glass edges
       ctx.strokeStyle = '#94A3B8';
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -908,7 +855,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       ctx.lineTo(tubeRight, TUBE_END.y);
       ctx.stroke();
 
-      // Chrome collars at joints
       ctx.fillStyle = '#475569';
       ctx.fillRect(tubeLeft - 3, PIPE_TOP.y - 2, TUBE_HW * 2 + 6, 5);
       ctx.fillRect(tubeLeft - 3, TUBE_END.y - 3, TUBE_HW * 2 + 6, 6);
@@ -927,7 +873,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       if (totalSlots <= 0) return;
       ctx.save();
 
-      // Outer tray frame
       const paddingX = 14;
       const paddingY = 10;
       const frameX = left - paddingX;
@@ -935,7 +880,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       const frameW = trayW + paddingX * 2;
       const frameH = trayH + paddingY * 2;
 
-      // Tray metallic chassis
       ctx.fillStyle = '#E2E8F0';
       ctx.strokeStyle = flash ? '#F59E0B' : '#94A3B8';
       ctx.lineWidth = flash ? 3 : 1.5;
@@ -945,13 +889,11 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       ctx.fill();
       ctx.stroke();
 
-      // Inner dark recessed ball track
       ctx.fillStyle = '#0F172A';
       ctx.beginPath();
       ctx.roundRect(left - 6, top - 3, trayW + 12, trayH + 6, 8);
       ctx.fill();
 
-      // Individual socket recesses
       for (let i = 0; i < totalSlots; i++) {
         const row = Math.floor(i / cols);
         const col = i % cols;
@@ -961,7 +903,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         const sx = rowLeft + TRAY_R + col * cellW;
         const sy = top + TRAY_R + row * (TRAY_R * 2 + TRAY_ROW_GAP);
 
-        // Dark bevel
         ctx.fillStyle = '#1E293B';
         ctx.beginPath();
         ctx.arc(sx, sy, TRAY_R + 1, 0, Math.PI * 2);
@@ -973,7 +914,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         ctx.arc(sx, sy, TRAY_R, 0, Math.PI * 2);
         ctx.stroke();
 
-        // Socket number indicator
         ctx.fillStyle = '#475569';
         ctx.font = '600 9px system-ui, sans-serif';
         ctx.textAlign = 'center';
@@ -986,39 +926,20 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
 
     function drawGlassOverlay(ctx: CanvasRenderingContext2D) {
       ctx.save();
-      // Glass sphere reflections & glares
       ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.arc(GLOBE_CX, GLOBE_CY, GLOBE_R - 1, 0, Math.PI * 2);
       ctx.stroke();
 
-      // Primary curved glass highlight glare (top-left)
       ctx.fillStyle = 'rgba(255, 255, 255, 0.28)';
       ctx.beginPath();
-      ctx.ellipse(
-        GLOBE_CX - 32,
-        GLOBE_CY - 44,
-        GLOBE_R * 0.52,
-        15,
-        -Math.PI / 10,
-        0,
-        Math.PI * 2
-      );
+      ctx.ellipse(GLOBE_CX - 32, GLOBE_CY - 44, GLOBE_R * 0.52, 15, -Math.PI / 10, 0, Math.PI * 2);
       ctx.fill();
 
-      // Secondary subtle glass bottom rim reflection
       ctx.fillStyle = 'rgba(255, 255, 255, 0.12)';
       ctx.beginPath();
-      ctx.ellipse(
-        GLOBE_CX + 28,
-        GLOBE_CY + 52,
-        GLOBE_R * 0.4,
-        8,
-        Math.PI / 8,
-        0,
-        Math.PI * 2
-      );
+      ctx.ellipse(GLOBE_CX + 28, GLOBE_CY + 52, GLOBE_R * 0.4, 8, Math.PI / 8, 0, Math.PI * 2);
       ctx.fill();
 
       ctx.restore();
@@ -1062,8 +983,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
 
     function drawPhysicsDebug(ctx: CanvasRenderingContext2D, currentFps: number) {
       ctx.save();
-
-      // 1. Drum Walls Collision Wireframe (40 segmented polygon bodies)
       ctx.lineWidth = 1.2;
       wallBodiesRef.current.forEach((wall, idx) => {
         const verts = wall.vertices;
@@ -1080,7 +999,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         ctx.fill();
         ctx.stroke();
 
-        // Vertex anchor points
         ctx.fillStyle = '#38BDF8';
         verts.forEach((pt) => {
           ctx.beginPath();
@@ -1089,7 +1007,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         });
       });
 
-      // 2. Theoretical Containment Boundary (Red Dashed Limit Ring)
       ctx.save();
       ctx.setLineDash([4, 4]);
       ctx.strokeStyle = 'rgba(239, 68, 68, 0.85)';
@@ -1099,12 +1016,10 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       ctx.stroke();
       ctx.restore();
 
-      // 3. Rotating Kinematic Paddles Wireframe Bounds & Orientation Vectors
-      paddlesRef.current.forEach((paddle, i) => {
+      paddlesRef.current.forEach((paddle) => {
         const verts = paddle.vertices;
         if (verts.length === 0) return;
 
-        // Paddle bounding box
         ctx.strokeStyle = '#F59E0B';
         ctx.fillStyle = 'rgba(245, 158, 11, 0.25)';
         ctx.lineWidth = 2;
@@ -1117,13 +1032,11 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         ctx.fill();
         ctx.stroke();
 
-        // Paddle Center Dot
         ctx.fillStyle = '#FBBF24';
         ctx.beginPath();
         ctx.arc(paddle.position.x, paddle.position.y, 2.5, 0, Math.PI * 2);
         ctx.fill();
 
-        // Normal Force / Thrust Vector from Paddle Face
         const normAngle = paddle.angle;
         const normLen = 18;
         const nx = paddle.position.x + Math.cos(normAngle) * normLen;
@@ -1136,24 +1049,16 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         ctx.lineTo(nx, ny);
         ctx.stroke();
 
-        // Normal arrow head
         const arrAng = Math.atan2(ny - paddle.position.y, nx - paddle.position.x);
         ctx.fillStyle = '#EF4444';
         ctx.beginPath();
         ctx.moveTo(nx, ny);
-        ctx.lineTo(
-          nx - 5 * Math.cos(arrAng - Math.PI / 6),
-          ny - 5 * Math.sin(arrAng - Math.PI / 6)
-        );
-        ctx.lineTo(
-          nx - 5 * Math.cos(arrAng + Math.PI / 6),
-          ny - 5 * Math.sin(arrAng + Math.PI / 6)
-        );
+        ctx.lineTo(nx - 5 * Math.cos(arrAng - Math.PI / 6), ny - 5 * Math.sin(arrAng - Math.PI / 6));
+        ctx.lineTo(nx - 5 * Math.cos(arrAng + Math.PI / 6), ny - 5 * Math.sin(arrAng + Math.PI / 6));
         ctx.closePath();
         ctx.fill();
       });
 
-      // 4. Ball Collision Wireframes & Force / Velocity Vectors
       let totalSpeed = 0;
       bodiesRef.current.forEach((ball) => {
         const vx = ball.velocity.x;
@@ -1161,7 +1066,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         const spd = Math.hypot(vx, vy);
         totalSpeed += spd;
 
-        // Collision perimeter circle in vivid green
         ctx.strokeStyle = '#10B981';
         ctx.lineWidth = 1.6;
         ctx.fillStyle = 'rgba(16, 185, 129, 0.18)';
@@ -1170,53 +1074,41 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
         ctx.fill();
         ctx.stroke();
 
-        // Center pivot dot
         ctx.fillStyle = '#FFFFFF';
         ctx.beginPath();
         ctx.arc(ball.position.x, ball.position.y, 1.8, 0, Math.PI * 2);
         ctx.fill();
 
-        // Force / Velocity Vector Arrow
         if (spd > 0.12) {
           const vectorScale = 4.2;
           const endX = ball.position.x + vx * vectorScale;
           const endY = ball.position.y + vy * vectorScale;
 
-          // Color scale: cyan -> lime -> amber -> red
-          let vecColor = '#06B6D4'; // cyan: low (< 2.5)
-          if (spd > 8) vecColor = '#EF4444'; // red: extreme (> 8)
-          else if (spd > 5) vecColor = '#F59E0B'; // amber: high (5-8)
-          else if (spd > 2.5) vecColor = '#84CC16'; // lime: moderate (2.5-5)
+          let vecColor = '#06B6D4';
+          if (spd > 8) vecColor = '#EF4444';
+          else if (spd > 5) vecColor = '#F59E0B';
+          else if (spd > 2.5) vecColor = '#84CC16';
 
           ctx.strokeStyle = vecColor;
           ctx.fillStyle = vecColor;
           ctx.lineWidth = 1.8;
 
-          // Arrow shaft
           ctx.beginPath();
           ctx.moveTo(ball.position.x, ball.position.y);
           ctx.lineTo(endX, endY);
           ctx.stroke();
 
-          // Arrow head
           const angle = Math.atan2(vy, vx);
           const headLen = Math.min(6, Math.max(3.5, spd * 0.75));
           ctx.beginPath();
           ctx.moveTo(endX, endY);
-          ctx.lineTo(
-            endX - headLen * Math.cos(angle - Math.PI / 6),
-            endY - headLen * Math.sin(angle - Math.PI / 6)
-          );
-          ctx.lineTo(
-            endX - headLen * Math.cos(angle + Math.PI / 6),
-            endY - headLen * Math.sin(angle + Math.PI / 6)
-          );
+          ctx.lineTo(endX - headLen * Math.cos(angle - Math.PI / 6), endY - headLen * Math.sin(angle - Math.PI / 6));
+          ctx.lineTo(endX - headLen * Math.cos(angle + Math.PI / 6), endY - headLen * Math.sin(angle + Math.PI / 6));
           ctx.closePath();
           ctx.fill();
         }
       });
 
-      // 5. Suction Funnel & Chute Collision Outlines
       ctx.save();
       ctx.strokeStyle = '#38BDF8';
       ctx.lineWidth = 1.5;
@@ -1229,7 +1121,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       ctx.stroke();
       ctx.restore();
 
-      // 6. Physics Telemetry HUD Overlay
       const avgSpeed = bodiesRef.current.length > 0 ? totalSpeed / bodiesRef.current.length : 0;
       const hudX = 14;
       const hudY = 14;
@@ -1256,7 +1147,6 @@ export const LotteryMachine = forwardRef<LotteryMachineHandle, LotteryMachinePro
       ctx.fillText(`Mean Speed: ${avgSpeed.toFixed(1)} px/f`, hudX + 8, hudY + 54);
       ctx.fillText(`Drum Speed: ${(drumSpeedRef.current * 60).toFixed(1)} rad/s`, hudX + 8, hudY + 67);
 
-      // Force vector legend
       ctx.fillStyle = '#06B6D4';
       ctx.fillRect(hudX + 8, hudY + 79, 6, 6);
       ctx.fillStyle = '#84CC16';

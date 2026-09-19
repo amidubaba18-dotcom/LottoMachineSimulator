@@ -1,8 +1,3 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import { CustomPool, SharedPool } from '../types';
 
 export const STORAGE_KEY_POOLS = 'lottery_custom_pools_v2';
@@ -21,7 +16,6 @@ export const DEFAULT_PRESET_POOLS: CustomPool[] = [
     description: '49 numbers • Pick 6',
     isPreset: true,
   },
-
   {
     id: 'preset-powerball-69',
     name: 'Powerball Main',
@@ -30,7 +24,6 @@ export const DEFAULT_PRESET_POOLS: CustomPool[] = [
     description: '69 numbers • Pick 5',
     isPreset: true,
   },
-
   {
     id: 'preset-euromillions-50',
     name: 'EuroMillions',
@@ -39,7 +32,6 @@ export const DEFAULT_PRESET_POOLS: CustomPool[] = [
     description: '50 numbers • Pick 5',
     isPreset: true,
   },
-
   {
     id: 'preset-ninety',
     name: 'Bingo 1–90',
@@ -48,7 +40,6 @@ export const DEFAULT_PRESET_POOLS: CustomPool[] = [
     description: '90 numbers • Pick 5',
     isPreset: true,
   },
-
   {
     id: 'preset-mini-20',
     name: 'Quick Mini',
@@ -61,10 +52,7 @@ export const DEFAULT_PRESET_POOLS: CustomPool[] = [
 
 export function normalizeNumbers(numbers: number[]): number[] {
   return numbers.filter(
-    (n) =>
-      Number.isInteger(n) &&
-      n >= 1 &&
-      n <= 90
+    (n) => Number.isInteger(n) && n >= 1 && n <= 90
   );
 }
 
@@ -81,10 +69,7 @@ function migratePool(pool: any): CustomPool | null {
     numbers = normalizeNumbers(pool.numbers);
   } else if (Array.isArray(pool.customNumbers)) {
     numbers = normalizeNumbers(pool.customNumbers);
-  } else if (
-    Number.isInteger(pool.min) &&
-    Number.isInteger(pool.max)
-  ) {
+  } else if (Number.isInteger(pool.min) && Number.isInteger(pool.max)) {
     const min = Math.max(1, pool.min);
     const max = Math.min(90, pool.max);
 
@@ -97,26 +82,26 @@ function migratePool(pool: any): CustomPool | null {
 
   const numbersToPick = Math.max(
     1,
-    Math.min(
-      Number(pool.numbersToPick) || 1,
-      numbers.length
-    )
+    Math.min(Number(pool.numbersToPick) || 1, numbers.length)
   );
 
   return {
     id: String(pool.id || `custom-${Date.now()}`),
-    name: String(
-      pool.name ||
-      `Custom (${numbers.length})`
-    ),
+    name: String(pool.name || `Custom(${numbers.length})`),
     numbers,
     sharedPoolId:
-      typeof pool.sharedPoolId === 'string'
-        ? pool.sharedPoolId
-        : undefined,
+      typeof pool.sharedPoolId === 'string' ? pool.sharedPoolId : undefined,
+
+    includeNumbers: Array.isArray(pool.includeNumbers)
+      ? normalizeNumbers(pool.includeNumbers)
+      : [],
+
+    excludeNumbers: Array.isArray(pool.excludeNumbers)
+      ? normalizeNumbers(pool.excludeNumbers)
+      : [],
+
     numbersToPick,
-    description:
-      `${numbers.length} numbers • Pick ${numbersToPick}`,
+    description: `${numbers.length} numbers • Pick ${numbersToPick}`,
     isPreset: Boolean(pool.isPreset),
     createdAt: pool.createdAt || Date.now(),
   };
@@ -132,30 +117,19 @@ export function loadSavedPools(): CustomPool[] {
       if (Array.isArray(parsed)) {
         const customs = parsed
           .map(migratePool)
-          .filter(
-            (pool): pool is CustomPool =>
-              Boolean(pool) && !pool.isPreset
-          );
+          .filter((pool): pool is CustomPool => Boolean(pool) && !pool.isPreset);
 
-        return [
-          ...DEFAULT_PRESET_POOLS,
-          ...customs,
-        ];
+        return [...DEFAULT_PRESET_POOLS, ...customs];
       }
     }
   } catch (err) {
-    console.warn(
-      'Failed to load custom pools:',
-      err
-    );
+    console.warn('Failed to load custom pools:', err);
   }
 
   return [...DEFAULT_PRESET_POOLS];
 }
 
-export function persistCustomPools(
-  pools: CustomPool[]
-): void {
+export function persistCustomPools(pools: CustomPool[]): void {
   try {
     const userPools = pools
       .filter((pool) => !pool.isPreset)
@@ -165,17 +139,19 @@ export function persistCustomPools(
         min: undefined,
         max: undefined,
         customNumbers: undefined,
+
+        includeNumbers: Array.isArray(pool.includeNumbers)
+          ? pool.includeNumbers
+          : [],
+
+        excludeNumbers: Array.isArray(pool.excludeNumbers)
+          ? pool.excludeNumbers
+          : [],
       }));
 
-    localStorage.setItem(
-      STORAGE_KEY_POOLS,
-      JSON.stringify(userPools)
-    );
+    localStorage.setItem(STORAGE_KEY_POOLS, JSON.stringify(userPools));
   } catch (err) {
-    console.warn(
-      'Failed to persist custom pools:',
-      err
-    );
+    console.warn('Failed to persist custom pools:', err);
   }
 }
 
@@ -185,9 +161,7 @@ export function persistCustomPools(
 
 export function loadSharedPools(): SharedPool[] {
   try {
-    const raw = localStorage.getItem(
-      STORAGE_KEY_SHARED_POOLS
-    );
+    const raw = localStorage.getItem(STORAGE_KEY_SHARED_POOLS);
 
     if (!raw) return [];
 
@@ -207,35 +181,20 @@ export function loadSharedPools(): SharedPool[] {
         id: pool.id,
         name: pool.name,
         numbers: normalizeNumbers(pool.numbers),
-        description:
-          pool.description ||
-          `${pool.numbers.length} numbers`,
-        createdAt:
-          pool.createdAt || Date.now(),
+        description: pool.description || `${pool.numbers.length} numbers`,
+        createdAt: pool.createdAt || Date.now(),
       }));
   } catch (err) {
-    console.warn(
-      'Failed to load shared pools:',
-      err
-    );
-
+    console.warn('Failed to load shared pools:', err);
     return [];
   }
 }
 
-export function persistSharedPools(
-  pools: SharedPool[]
-): void {
+export function persistSharedPools(pools: SharedPool[]): void {
   try {
-    localStorage.setItem(
-      STORAGE_KEY_SHARED_POOLS,
-      JSON.stringify(pools)
-    );
+    localStorage.setItem(STORAGE_KEY_SHARED_POOLS, JSON.stringify(pools));
   } catch (err) {
-    console.warn(
-      'Failed to persist shared pools:',
-      err
-    );
+    console.warn('Failed to persist shared pools:', err);
   }
 }
 
@@ -247,33 +206,44 @@ export function getPoolNumbers(
   pool: CustomPool,
   sharedPools: SharedPool[]
 ): number[] {
-  const ownNumbers = Array.isArray(pool.numbers)
-    ? pool.numbers
-    : [];
+  const ownNumbers = Array.isArray(pool.numbers) ? pool.numbers : [];
 
-  if (!pool.sharedPoolId) {
-    return [...ownNumbers];
-  }
+  let numbers = [...ownNumbers];
 
-  const sharedPool = sharedPools.find(
-    (shared) =>
-      shared.id === pool.sharedPoolId
-  );
+  if (pool.sharedPoolId) {
+    const sharedPool = sharedPools.find(
+      (shared) => shared.id === pool.sharedPoolId
+    );
 
-  if (!sharedPool) {
-    return [...ownNumbers];
+    if (sharedPool) {
+      /**
+       * Shared numbers are borrowed into the custom pool.
+       *
+       * Duplicates are intentionally allowed because the
+       * React Native implementation supports them.
+       */
+      numbers = [...numbers, ...sharedPool.numbers];
+    }
   }
 
   /**
-   * Shared numbers are borrowed into the custom pool.
-   *
-   * Duplicates are intentionally allowed because the
-   * React Native implementation supports them.
+   * Include numbers are added to the effective pool.
    */
-  return [
-    ...ownNumbers,
-    ...sharedPool.numbers,
-  ];
+  if (Array.isArray(pool.includeNumbers)) {
+    numbers = [...numbers, ...pool.includeNumbers];
+  }
+
+  /**
+   * Exclude numbers are removed last.
+   * Therefore, Exclude wins if the same number
+   * exists in both Include and Exclude.
+   */
+  if (Array.isArray(pool.excludeNumbers)) {
+    const excluded = new Set(pool.excludeNumbers);
+    numbers = numbers.filter((number) => !excluded.has(number));
+  }
+
+  return numbers;
 }
 
 export function describePool(
@@ -283,10 +253,7 @@ export function describePool(
   const ownCount = pool.numbers.length;
 
   const sharedPool = pool.sharedPoolId
-    ? sharedPools.find(
-      (shared) =>
-        shared.id === pool.sharedPoolId
-    )
+    ? sharedPools.find((shared) => shared.id === pool.sharedPoolId)
     : undefined;
 
   if (sharedPool) {
@@ -299,15 +266,10 @@ export function describePool(
 /**
  * Kept for compatibility with old imports.
  */
-export function parseCustomNumbers(
-  rawInput: string
-): number[] {
+export function parseCustomNumbers(rawInput: string): number[] {
   if (!rawInput.trim()) return [];
 
-  const tokens = rawInput.split(
-    /[\s,;|\n\r]+/
-  );
-
+  const tokens = rawInput.split(/[\s,;|\n\r]+/);
   const validNumbers: number[] = [];
 
   for (const token of tokens) {
@@ -317,12 +279,7 @@ export function parseCustomNumbers(
 
     const num = Number(clean);
 
-    if (
-      !Number.isNaN(num) &&
-      Number.isInteger(num) &&
-      num > 0 &&
-      num <= 90
-    ) {
+    if (!Number.isNaN(num) && Number.isInteger(num) && num > 0 && num <= 90) {
       validNumbers.push(num);
     }
   }

@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { Volume2, VolumeX, Disc3, Wind, Hash } from 'lucide-react';
+import { Volume2, VolumeX, Disc3, Wind, Hash, SlidersHorizontal } from 'lucide-react';
 import { CustomPool } from '../types';
 
 interface ControlsProps {
@@ -20,12 +20,21 @@ interface ControlsProps {
   onToggleSound: () => void;
   machineType: 'mechanical' | 'blower';
   onMachineTypeChange: (type: 'mechanical' | 'blower') => void;
+  // Range: a temporary drawing-boundary filter over the pool. Never mutates the pool itself.
+  rangeFrom: number;
+  rangeTo: number;
+  poolMin: number;
+  poolMax: number;
+  onRangeFromChange: (val: number) => void;
+  onRangeToChange: (val: number) => void;
+  rangedCount: number;
 }
 
 export const Controls: React.FC<ControlsProps> = ({
   isDrawing, drawnCount, numbersToPick, maxNumbersToPick,
   onNumbersToPickChange, activePool, speedMultiplier, onSpeedChange, soundEnabled,
   onToggleSound, machineType, onMachineTypeChange,
+  rangeFrom, rangeTo, poolMin, poolMax, onRangeFromChange, onRangeToChange, rangedCount,
 }) => {
   const canChangeCount = !isDrawing && drawnCount === 0;
 
@@ -36,6 +45,26 @@ export const Controls: React.FC<ControlsProps> = ({
     const parsed = parseInt(raw, 10);
     if (Number.isNaN(parsed)) return;
     onNumbersToPickChange(clamp(parsed));
+  };
+
+  const clampRange = (val: number) => Math.min(Math.max(val, poolMin), poolMax);
+
+  const handleRangeFromChange = (raw: string) => {
+    if (raw === '') return;
+    const parsed = parseInt(raw, 10);
+    if (Number.isNaN(parsed)) return;
+    const next = clampRange(parsed);
+    // "From" can't exceed "To"
+    onRangeFromChange(Math.min(next, rangeTo));
+  };
+
+  const handleRangeToChange = (raw: string) => {
+    if (raw === '') return;
+    const parsed = parseInt(raw, 10);
+    if (Number.isNaN(parsed)) return;
+    const next = clampRange(parsed);
+    // "To" can't go below "From"
+    onRangeToChange(Math.max(next, rangeFrom));
   };
 
   return (
@@ -75,6 +104,49 @@ export const Controls: React.FC<ControlsProps> = ({
             className="flex-1 accent-neutral-900 disabled:opacity-50 disabled:cursor-not-allowed"
           />
         </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <label className="flex items-center gap-1.5 text-neutral-500 font-medium text-xs">
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            Range
+          </label>
+          <span className="text-[10px] text-neutral-400">
+            {rangedCount} number{rangedCount === 1 ? '' : 's'} in range
+          </span>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={poolMin}
+            max={rangeTo}
+            value={rangeFrom}
+            disabled={!canChangeCount}
+            onChange={(e) => handleRangeFromChange(e.target.value)}
+            onBlur={(e) => onRangeFromChange(Math.min(clampRange(Number(e.target.value) || poolMin), rangeTo))}
+            className="w-16 bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-xs font-semibold text-neutral-800 text-center disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+          <span className="text-xs text-neutral-400 font-medium">to</span>
+          <input
+            type="number"
+            min={rangeFrom}
+            max={poolMax}
+            value={rangeTo}
+            disabled={!canChangeCount}
+            onChange={(e) => handleRangeToChange(e.target.value)}
+            onBlur={(e) => onRangeToChange(Math.max(clampRange(Number(e.target.value) || poolMax), rangeFrom))}
+            className="w-16 bg-white border border-neutral-300 rounded-lg px-2 py-1.5 text-xs font-semibold text-neutral-800 text-center disabled:opacity-50 disabled:cursor-not-allowed"
+          />
+          <span className="text-[10px] text-neutral-400 ml-auto">pool: {poolMin}–{poolMax}</span>
+        </div>
+
+        {rangedCount === 0 && (
+          <p className="text-[11px] text-red-500 font-medium mt-1.5">
+            No numbers fall in this range — widen it to draw.
+          </p>
+        )}
       </div>
 
       <div className="flex items-center justify-between p-2.5 rounded-lg border border-neutral-200 text-xs">

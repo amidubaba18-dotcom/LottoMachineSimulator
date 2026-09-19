@@ -20,6 +20,12 @@ export interface LotteryMachineProps {
   onReset: () => void;
   isDrawing: boolean;
   isComplete: boolean;
+  // The full pool (customNumbers) always spawns and tumbles in the globe.
+  // drawMin/drawMax restrict which balls are ELIGIBLE to be selected as a
+  // winner — everything outside this window still tumbles but can never be
+  // pulled. Defaults to min/max (whole pool drawable) when omitted.
+  drawMin?: number;
+  drawMax?: number;
 }
 
 export interface LotteryMachineHandle {
@@ -27,53 +33,55 @@ export interface LotteryMachineHandle {
   reset: () => void;
 }
 
-/**
- * A reusable pool of numbers.
- *
- * Shared pools are independent from custom pools and can be
- * linked to multiple custom pools.
- */
-export interface SharedPool {
-  id: string;
-  name: string;
-  numbers: number[];
-  description?: string;
-  createdAt?: number;
-}
-
-/**
- * A user-created lottery pool.
- *
- * `numbers` is now the source of truth.
- *
- * `sharedPoolId` is optional. When present, the numbers from
- * that shared pool are borrowed and added to this pool.
- */
 export interface CustomPool {
   id: string;
   name: string;
 
   /**
-   * The numbers owned directly by this custom pool.
+   * Numbers manually belonging to this pool.
    */
   numbers: number[];
 
   /**
-   * Optional shared pool whose numbers are borrowed.
+   * Optional shared pool whose numbers are added
+   * to this custom pool.
    */
   sharedPoolId?: string;
 
   /**
-   * Kept for compatibility with older saved data/components.
+   * Numbers that should always be added to the
+   * drawing pool, even if they are not in the
+   * custom/shared pool.
    */
-  type?: 'custom_list' | 'range';
-  min?: number;
-  max?: number;
-  customNumbers?: number[];
+  includeNumbers?: number[];
 
-  numbersToPick: number;
+  /**
+   * Numbers that must never be drawn.
+   *
+   * Exclude wins over Include when a number
+   * exists in both lists.
+   */
+  excludeNumbers?: number[];
+
+  /**
+   * Kept for backwards compatibility with
+   * older saved pools.
+   *
+   * New code does NOT use this as the active
+   * drawing count.
+   */
+  numbersToPick?: number;
+
   description?: string;
   isPreset?: boolean;
+  createdAt?: number;
+}
+
+export interface SharedPool {
+  id: string;
+  name: string;
+  numbers: number[];
+  description?: string;
   createdAt?: number;
 }
 
@@ -84,6 +92,6 @@ export interface DrawHistoryRecord {
   min: number;
   max: number;
   numbersToPick: number;
-  machineType?: 'mechanical' | 'blower';
-  poolName?: string;
+  machineType: 'mechanical' | 'blower';
+  poolName: string;
 }
